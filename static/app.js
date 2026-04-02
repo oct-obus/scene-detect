@@ -48,12 +48,8 @@ async function init() {
         // No video preloaded -- try to restore last used video
         const lastVideo = localStorage.getItem('scene-detect-last-video');
         if (lastVideo) {
-            try {
-                await openVideoByPath(lastVideo);
-                return;
-            } catch (e) {
-                // Last video no longer available
-            }
+            const restored = await openVideoByPath(lastVideo);
+            if (restored) return;
         }
         showVideoPicker();
     }
@@ -69,6 +65,10 @@ function onVideoLoaded(info) {
     const video = $('#video-player');
     const source = $('#video-source');
     source.src = '/api/video?' + Date.now();
+    // Set correct MIME type based on filename
+    const ext = (info.filename || '').split('.').pop().toLowerCase();
+    const mimeMap = {mp4:'video/mp4',m4v:'video/mp4',mkv:'video/x-matroska',webm:'video/webm',avi:'video/x-msvideo',mov:'video/quicktime',wmv:'video/x-ms-wmv',flv:'video/x-flv',ts:'video/mp2t',mts:'video/mp2t'};
+    source.type = mimeMap[ext] || 'video/mp4';
     video.load();
 
     // Hide picker, show video
@@ -123,7 +123,7 @@ function setupVideoPicker() {
 }
 
 async function openVideoByPath(path) {
-    if (!path.trim()) return;
+    if (!path.trim()) return false;
     const errEl = $('#picker-error');
     errEl.style.display = 'none';
 
@@ -137,7 +137,7 @@ async function openVideoByPath(path) {
             const text = await res.text();
             errEl.textContent = text || 'Failed to open video';
             errEl.style.display = 'block';
-            return;
+            return false;
         }
         const info = await res.json();
         // Remember this video for next session
@@ -149,9 +149,11 @@ async function openVideoByPath(path) {
         renderTimeline();
         onVideoLoaded(info);
         setStatus('', 'Ready');
+        return true;
     } catch (e) {
         errEl.textContent = 'Error: ' + e.message;
         errEl.style.display = 'block';
+        return false;
     }
 }
 
@@ -436,8 +438,10 @@ function startAnalysis() {
 
         if (msg.type === 'progress') {
             $('#progress-fill').style.width = msg.percent + '%';
+            const phaseLabel = msg.phase === 'clustering' ? 'Clustering faces' :
+                               msg.phase === 'faces' ? 'Detecting faces' : 'Detecting scenes';
             $('#progress-text').textContent =
-                `${msg.percent}% -- ${msg.scenes_found} scene${msg.scenes_found !== 1 ? 's' : ''} found`;
+                `${phaseLabel} -- ${msg.percent}% -- ${msg.scenes_found} scene${msg.scenes_found !== 1 ? 's' : ''} found`;
         }
 
         if (msg.type === 'complete') {

@@ -26,12 +26,11 @@ import asyncio
 import json
 import os
 import queue
-import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
@@ -166,11 +165,11 @@ class FaceAnalyzer:
             embedding /= norm
         return embedding.tolist()
 
-    def close(self):
+    def close(self) -> None:
         self.detector.close()
 
 
-def cluster_faces(scenes: list[SceneChange], distance_threshold: float = 0.6):
+def cluster_faces(scenes: list[SceneChange], distance_threshold: float = 0.6) -> None:
     from sklearn.cluster import AgglomerativeClustering
 
     all_embeddings = []
@@ -204,7 +203,7 @@ def cluster_faces(scenes: list[SceneChange], distance_threshold: float = 0.6):
 class SceneDetector:
     """Runs scene detection with progress callbacks."""
 
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: Optional[str]):
         self.video_path = video_path
         self.scenes: list[SceneChange] = []
         self.all_scores: list[float] = []
@@ -223,7 +222,7 @@ class SceneDetector:
         detect_faces: bool = False,
         face_confidence: float = 0.5,
         cluster_distance: float = 0.6,
-        progress_callback=None,
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
         thumb_dir: Optional[str] = None,
         thumb_width: int = 320,
         skip_frames: int = 1,
@@ -246,7 +245,12 @@ class SceneDetector:
 
         face_analyzer = None
         if detect_faces:
-            face_analyzer = FaceAnalyzer(min_confidence=face_confidence)
+            try:
+                face_analyzer = FaceAnalyzer(min_confidence=face_confidence)
+            except ImportError:
+                raise RuntimeError(
+                    "Face detection requires mediapipe. Install with: pip install mediapipe"
+                )
 
         if thumb_dir:
             os.makedirs(thumb_dir, exist_ok=True)
@@ -298,84 +302,98 @@ class SceneDetector:
                                       interpolation=cv2.INTER_AREA)
             return frame
 
-        prev_frame = next_frame()
-        if prev_frame is None:
-            raise RuntimeError("Cannot read first frame")
+        try:
+            prev_frame = next_frame()
+            if prev_frame is None:
+                raise RuntimeError("Cannot read first frame")
 
-        prev_hist = calc_histogram(maybe_downscale(prev_frame))
-        last_cut_frame = 0
-        frame_idx = 0
+            prev_hist = calc_histogram(maybe_downscale(prev_frame))
+            last_cut_frame = 0
+            frame_idx = 0
 
-        window: list[float] = []
-        window_size = int(self.fps * 4)
+            window: list[float] = []
+            window_size = int(self.fps * 4)
 
-        while not self.cancelled:
-            frame = next_frame()
-            if frame is None:
-                break
-            frame_idx += 1
+            while not self.cancelled:
+                frame = next_frame()
+                if frame is None:
+                    break
+                frame_idx += 1
 
-            # Read every frame for accurate timecodes, but only process every Nth
-            if skip_frames > 1 and frame_idx % skip_frames != 0:
-                continue
+                # Read every frame for accurate timecodes, but only process every Nth
+                if skip_frames > 1 and frame_idx % skip_frames != 0:
+                    continue
 
-            curr_hist = calc_histogram(maybe_downscale(frame))
-            corr = cv2.compareHist(prev_hist, curr_hist, cv2.HISTCMP_CORREL)
-            diff = 1.0 - corr
-            score = min(diff, 1.0)
+                curr_hist = calc_histogram(maybe_downscale(frame))
+                corr = cv2.compareHist(prev_hist, curr_hist, cv2.HISTCMP_CORREL)
+                diff = 1.0 - corr
+                score = min(diff, 1.0)
 
-            self.all_scores.append(score)
-            window.append(score)
-            if len(window) > window_size:
-                window.pop(0)
+                self.all_scores.append(score)
+                window.append(score)
+                if len(window) > window_size:
+                    window.pop(0)
 
-            if adaptive and len(window) > self.fps:
-                local_mean = np.mean(window)
-                local_std = np.std(window)
-                effective_threshold = max(threshold, local_mean + 3 * local_std)
-            else:
-                effective_threshold = threshold
+                if adaptive and len(window) > self.fps:
+                    local_mean = np.mean(window)
+                    local_std = np.std(window)
+                    effective_threshold = max(threshold, local_mean + 3 * local_std)
+                else:
+                    effective_threshold = threshold
 
-            if score >= effective_threshold and (frame_idx - last_cut_frame) >= min_scene_len:
-                ts = frame_idx / self.fps
-                # Use original (not downscaled) frame for face detection
-                faces = face_analyzer.detect(frame) if face_analyzer else []
+                if score >= effective_threshold and (frame_idx - last_cut_frame) >= min_scene_len:
+                    ts = frame_idx / self.fps
+                    # Use original (not downscaled) frame for face detection
+                    if face_analyzer:
+                        if progress_callback:
+                            progress_callback(frame_idx, self.total_frames, len(self.scenes), "faces")
+                        faces = face_analyzer.detect(frame)
+                    else:
+                        faces = []
 
-                sc = SceneChange(
-                    frame=frame_idx,
-                    timecode=format_timecode(ts),
-                    timestamp_sec=round(ts, 3),
-                    score=round(score, 4),
-                    method="histogram_correlation",
-                    faces=faces,
-                )
-                self.scenes.append(sc)
-                last_cut_frame = frame_idx
+                    sc = SceneChange(
+                        frame=frame_idx,
+                        timecode=format_timecode(ts),
+                        timestamp_sec=round(ts, 3),
+                        score=round(score, 4),
+                        method="histogram_correlation",
+                        faces=faces,
+                    )
+                    self.scenes.append(sc)
+                    last_cut_frame = frame_idx
 
-                if thumb_dir:
-                    self._save_thumbnail(frame, sc, thumb_dir, thumb_width)
+                    if thumb_dir:
+                        self._save_thumbnail(frame, sc, thumb_dir, thumb_width)
 
-            prev_hist = curr_hist
+                prev_hist = curr_hist
 
-            if progress_callback and frame_idx % 10 == 0:
-                progress_callback(frame_idx, self.total_frames, len(self.scenes))
+                if progress_callback and frame_idx % 10 == 0:
+                    progress_callback(frame_idx, self.total_frames, len(self.scenes), "detecting")
 
-        if use_threading:
-            reader.join(timeout=2)
+            if use_threading:
+                reader.join(timeout=2)
 
-        cap.release()
+            if face_analyzer:
+                if self.scenes and not self.cancelled:
+                    if progress_callback:
+                        progress_callback(self.total_frames, self.total_frames, len(self.scenes), "clustering")
+                    try:
+                        cluster_faces(self.scenes, distance_threshold=cluster_distance)
+                    except ImportError:
+                        raise RuntimeError(
+                            "Face clustering requires scikit-learn. Install with: pip install scikit-learn"
+                        )
 
-        if face_analyzer:
-            face_analyzer.close()
-            if self.scenes and not self.cancelled:
-                cluster_faces(self.scenes, distance_threshold=cluster_distance)
+            if progress_callback:
+                progress_callback(self.total_frames, self.total_frames, len(self.scenes), "detecting")
 
-        if progress_callback:
-            progress_callback(self.total_frames, self.total_frames, len(self.scenes))
+            return self.scenes
+        finally:
+            cap.release()
+            if face_analyzer:
+                face_analyzer.close()
 
-        return self.scenes
-
-    def cancel(self):
+    def cancel(self) -> None:
         self.cancelled = True
 
     def get_frame(self, frame_num: int) -> Optional[np.ndarray]:
@@ -385,7 +403,7 @@ class SceneDetector:
         cap.release()
         return frame if ret else None
 
-    def _save_thumbnail(self, frame: np.ndarray, sc: SceneChange, out_dir: str, thumb_width: int):
+    def _save_thumbnail(self, frame: np.ndarray, sc: SceneChange, out_dir: str, thumb_width: int) -> None:
         fh, fw = frame.shape[:2]
         thumb_h = int(fh * thumb_width / fw)
         thumb = cv2.resize(frame, (thumb_width, thumb_h), interpolation=cv2.INTER_AREA)
@@ -395,7 +413,20 @@ class SceneDetector:
 
 # ── Web UI Server ────────────────────────────────────────────────────────────
 
-def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "0.0.0.0"):
+
+def _guess_video_mime(path: str) -> str:
+    ext = os.path.splitext(path)[1].lower()
+    mime_map = {
+        '.mp4': 'video/mp4', '.m4v': 'video/mp4',
+        '.mkv': 'video/x-matroska', '.webm': 'video/webm',
+        '.avi': 'video/x-msvideo', '.mov': 'video/quicktime',
+        '.wmv': 'video/x-ms-wmv', '.flv': 'video/x-flv',
+        '.ts': 'video/mp2t', '.mts': 'video/mp2t',
+    }
+    return mime_map.get(ext, 'video/mp4')
+
+
+def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "0.0.0.0") -> None:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse, Response
@@ -403,12 +434,12 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
 
     app = FastAPI(title="Scene Detect")
     detector = SceneDetector(video_path) if video_path else None
-    state = {"detector": detector, "video_path": video_path}
+    state: dict[str, Any] = {"detector": detector, "video_path": video_path}
     static_dir = Path(__file__).parent / "static"
     thumb_dir = Path(__file__).parent / "thumbnails"
 
     active_ws: list[WebSocket] = []
-    analysis_lock = threading.Lock()
+    analysis_lock = asyncio.Lock()
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -469,7 +500,7 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
         vp = state["video_path"]
         if not vp:
             return Response(status_code=404, content="No video loaded")
-        return FileResponse(vp, media_type="video/mp4", filename=os.path.basename(vp))
+        return FileResponse(vp, media_type=_guess_video_mime(vp), filename=os.path.basename(vp))
 
     @app.get("/api/video-info")
     async def video_info():
@@ -595,12 +626,17 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
         face_idx = data.get("face_idx")
         if scene_idx is None or face_idx is None:
             return Response(status_code=400)
+        if scene_idx < 0 or scene_idx >= len(det.scenes):
+            return Response(status_code=404, content="Invalid scene index")
+        sc = det.scenes[scene_idx]
+        if face_idx < 0 or face_idx >= len(sc.faces):
+            return Response(status_code=404, content="Invalid face index")
         max_id = 0
-        for sc in det.scenes:
-            for f in sc.faces:
+        for s in det.scenes:
+            for f in s.faces:
                 max_id = max(max_id, f.character_id)
         new_id = max_id + 1
-        det.scenes[scene_idx].faces[face_idx].character_id = new_id
+        sc.faces[face_idx].character_id = new_id
         return {"ok": True, "new_character_id": new_id}
 
     @app.websocket("/api/ws")
@@ -620,56 +656,60 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
                     settings = data.get("settings", {})
 
                     async def run_analysis():
-                        loop = asyncio.get_event_loop()
-                        last_update = [0.0]
+                        try:
+                            loop = asyncio.get_event_loop()
+                            last_update = [0.0]
 
-                        def progress_cb(current, total, scene_count):
-                            now = time.time()
-                            if now - last_update[0] < 0.1 and current < total:
-                                return
-                            last_update[0] = now
-                            asyncio.run_coroutine_threadsafe(
-                                ws.send_json({
-                                    "type": "progress",
-                                    "current": current,
-                                    "total": total,
-                                    "percent": round(current / max(total, 1) * 100, 1),
-                                    "scenes_found": scene_count,
-                                }),
-                                loop,
-                            )
+                            def progress_cb(current, total, scene_count, phase="detecting"):
+                                now = time.time()
+                                if now - last_update[0] < 0.1 and current < total:
+                                    return
+                                last_update[0] = now
+                                asyncio.run_coroutine_threadsafe(
+                                    ws.send_json({
+                                        "type": "progress",
+                                        "current": current,
+                                        "total": total,
+                                        "percent": round(current / max(total, 1) * 100, 1),
+                                        "scenes_found": scene_count,
+                                        "phase": phase,
+                                    }),
+                                    loop,
+                                )
 
-                        def do_detect():
-                            det.detect(
-                                threshold=settings.get("threshold", 0.4),
-                                min_scene_len=settings.get("min_scene_len", 15),
-                                adaptive=settings.get("adaptive", True),
-                                detect_faces=settings.get("faces", False),
-                                face_confidence=settings.get("face_confidence", 0.5),
-                                cluster_distance=settings.get("cluster_distance", 0.6),
-                                progress_callback=progress_cb,
-                                thumb_dir=str(thumb_dir),
-                                thumb_width=settings.get("thumb_width", 320),
-                                skip_frames=settings.get("skip_frames", 2),
-                                downscale_height=settings.get("downscale", 480),
-                                use_threading=settings.get("threading", True),
-                            )
+                            def do_detect():
+                                det.detect(
+                                    threshold=settings.get("threshold", 0.4),
+                                    min_scene_len=settings.get("min_scene_len", 15),
+                                    adaptive=settings.get("adaptive", True),
+                                    detect_faces=settings.get("faces", False),
+                                    face_confidence=settings.get("face_confidence", 0.5),
+                                    cluster_distance=settings.get("cluster_distance", 0.6),
+                                    progress_callback=progress_cb,
+                                    thumb_dir=str(thumb_dir),
+                                    thumb_width=settings.get("thumb_width", 320),
+                                    skip_frames=settings.get("skip_frames", 2),
+                                    downscale_height=settings.get("downscale", 480),
+                                    use_threading=settings.get("threading", True),
+                                )
 
-                        with analysis_lock:
-                            await loop.run_in_executor(None, do_detect)
+                            async with analysis_lock:
+                                await loop.run_in_executor(None, do_detect)
 
-                        scenes_data = [sc.to_dict() for sc in det.scenes]
-                        scores = det.all_scores
-                        if len(scores) > 2000:
-                            step = len(scores) // 2000
-                            scores = scores[::step]
-                        await ws.send_json({
-                            "type": "complete",
-                            "scenes": scenes_data,
-                            "scores": [round(s, 4) for s in scores],
-                            "fps": det.fps,
-                            "total_frames": det.total_frames,
-                        })
+                            scenes_data = [sc.to_dict() for sc in det.scenes]
+                            scores = det.all_scores
+                            if len(scores) > 2000:
+                                step = len(scores) // 2000
+                                scores = scores[::step]
+                            await ws.send_json({
+                                "type": "complete",
+                                "scenes": scenes_data,
+                                "scores": [round(s, 4) for s in scores],
+                                "fps": det.fps,
+                                "total_frames": det.total_frames,
+                            })
+                        except Exception as e:
+                            await ws.send_json({"type": "error", "message": str(e)})
 
                     asyncio.create_task(run_analysis())
 
@@ -682,26 +722,26 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
         except WebSocketDisconnect:
             active_ws.remove(ws)
 
-    print(f"\n  Scene Detect UI")
+    print("\n  Scene Detect UI")
     if video_path:
         print(f"  Video: {video_path}")
     else:
-        print(f"  No video preloaded -- select one from the UI")
+        print("  No video preloaded -- select one from the UI")
     print(f"  Open http://localhost:{port} in your browser\n")
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 # ── CLI mode ─────────────────────────────────────────────────────────────────
 
-def run_cli(args):
+def run_cli(args) -> None:
     detector = SceneDetector(args.video)
 
     print(f"Video: {args.video}")
 
-    def progress(current, total, scene_count):
+    def progress(current, total, scene_count, phase="detecting"):
         if current % 500 == 0 or current == total:
             pct = current / max(total, 1) * 100
-            print(f"  [{pct:5.1f}%] frame {current}/{total}, {scene_count} scenes so far")
+            print(f"  [{pct:5.1f}%] frame {current}/{total}, {scene_count} scenes so far ({phase})")
 
     thumb_dir = None
     if not args.no_thumbnails:
@@ -740,7 +780,7 @@ def run_cli(args):
             for f in sc.faces:
                 char_scenes.setdefault(f.character_id, []).append(sc.timecode)
         if char_scenes:
-            print(f"\nCharacter appearances:")
+            print("\nCharacter appearances:")
             for cid in sorted(char_scenes):
                 times = char_scenes[cid]
                 print(f"  Character #{cid}: {len(times)} scene(s) — "
@@ -759,7 +799,7 @@ def run_cli(args):
 
 # ── Entry point ──────────────────────────────────────────────────────────────
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Detect scene changes in a video, with optional face re-identification and web UI"
     )
