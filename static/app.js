@@ -45,7 +45,16 @@ async function init() {
         // Video is preloaded
         onVideoLoaded(state.videoInfo);
     } else {
-        // No video -- show picker
+        // No video preloaded -- try to restore last used video
+        const lastVideo = localStorage.getItem('scene-detect-last-video');
+        if (lastVideo) {
+            try {
+                await openVideoByPath(lastVideo);
+                return;
+            } catch (e) {
+                // Last video no longer available
+            }
+        }
         showVideoPicker();
     }
 }
@@ -94,7 +103,8 @@ function showVideoPicker() {
     $('#video-info-bar').style.display = 'none';
     $('#analyze-btn').disabled = true;
     $('#video-name').textContent = '';
-    browseDirectory('~');
+    const lastDir = localStorage.getItem('scene-detect-last-dir') || '~';
+    browseDirectory(lastDir);
 }
 
 function setupVideoPicker() {
@@ -130,6 +140,8 @@ async function openVideoByPath(path) {
             return;
         }
         const info = await res.json();
+        // Remember this video for next session
+        localStorage.setItem('scene-detect-last-video', info.path);
         // Clear previous results
         state.scenes = [];
         state.scores = [];
@@ -157,6 +169,9 @@ async function browseDirectory(path) {
 function renderBrowser(data) {
     const pathEl = $('#browser-path');
     const listEl = $('#browser-list');
+
+    // Remember the current directory
+    localStorage.setItem('scene-detect-last-dir', data.path);
 
     pathEl.innerHTML = '';
     if (data.parent && data.parent !== data.path) {
