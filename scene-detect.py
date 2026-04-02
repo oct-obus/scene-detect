@@ -685,16 +685,16 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
                                 det.detect(
                                     threshold=settings.get("threshold", 0.4),
                                     min_scene_len=settings.get("min_scene_len", 15),
-                                    adaptive=settings.get("adaptive", True),
-                                    detect_faces=settings.get("faces", False),
+                                    adaptive=settings.get("adaptive_threshold", settings.get("adaptive", True)),
+                                    detect_faces=settings.get("detect_faces", settings.get("faces", False)),
                                     face_confidence=settings.get("face_confidence", 0.5),
                                     cluster_distance=settings.get("cluster_distance", 0.6),
                                     progress_callback=progress_cb,
                                     thumb_dir=str(thumb_dir),
                                     thumb_width=settings.get("thumb_width", 320),
                                     skip_frames=settings.get("skip_frames", 2),
-                                    downscale_height=settings.get("downscale", 480),
-                                    use_threading=settings.get("threading", True),
+                                    downscale_height=settings.get("downscale_height", settings.get("downscale", 480)),
+                                    use_threading=settings.get("threaded_pipeline", settings.get("threading", True)),
                                 )
 
                             async with analysis_lock:
