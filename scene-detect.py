@@ -738,6 +738,7 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
                                 "total_frames": det.total_frames,
                             })
                         except Exception as e:
+                            print(f"  Analysis error: {e}")
                             await safe_send({"type": "error", "message": str(e)})
 
                     asyncio.create_task(run_analysis())

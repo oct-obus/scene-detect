@@ -15,6 +15,7 @@ interface AppState {
   selectedScene: number | null;
   seekToFrame: number | null;
   showFilePicker: boolean;
+  error: string | null;
 }
 
 type Action =
@@ -26,6 +27,7 @@ type Action =
   | { type: 'SEEK_TO_FRAME'; payload: number | null }
   | { type: 'UPDATE_SCENE'; payload: { frame: number; changes: Partial<SceneChange> } }
   | { type: 'SHOW_FILE_PICKER'; payload: boolean }
+  | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'RESET_ANALYSIS' };
 
 const initialState: AppState = {
@@ -41,6 +43,7 @@ const initialState: AppState = {
   selectedScene: null,
   seekToFrame: null,
   showFilePicker: false,
+  error: null,
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -76,6 +79,8 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case 'SHOW_FILE_PICKER':
       return { ...state, showFilePicker: action.payload };
+    case 'SET_ERROR':
+      return { ...state, error: action.payload };
     case 'RESET_ANALYSIS':
       return { ...state, analyzing: false, phase: '', progress: 0, scenesFound: 0 };
     default:
@@ -124,6 +129,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const startAnalysis = useCallback((settings: AnalysisSettings) => {
     dispatch({ type: 'SET_ANALYZING', payload: true });
+    dispatch({ type: 'SET_ERROR', payload: null });
     dispatch({ type: 'SET_PROGRESS', payload: { phase: 'Starting...', progress: 0, scenesFound: 0 } });
 
     const ws = api.createWS();
@@ -155,6 +161,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ws.close();
           break;
         case 'error':
+          dispatch({ type: 'SET_ERROR', payload: msg.message });
           dispatch({ type: 'RESET_ANALYSIS' });
           ws.close();
           break;

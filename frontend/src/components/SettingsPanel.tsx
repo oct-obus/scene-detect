@@ -41,7 +41,13 @@ export function SettingsPanel() {
 
       {state.videoInfo?.path && (
         <div style={{ marginBottom: 12, fontSize: 11, color: 'var(--text-muted)', wordBreak: 'break-all' }}>
-          {state.videoInfo.filename}
+          <span
+            style={{ cursor: 'pointer', textDecoration: 'underline' }}
+            onClick={() => dispatch({ type: 'SHOW_FILE_PICKER', payload: true })}
+            title="Click to change video"
+          >
+            {state.videoInfo.filename}
+          </span>
           <span style={{ display: 'block', marginTop: 2 }}>
             {state.videoInfo.width}x{state.videoInfo.height} | {state.videoInfo.fps.toFixed(1)} fps |{' '}
             {Math.round(state.videoInfo.duration)}s
@@ -206,6 +212,25 @@ export function SettingsPanel() {
       {!state.analyzing && state.scenes.length > 0 && (
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
           {state.scenes.filter((s) => !s.removed).length} scenes detected
+        </div>
+      )}
+
+      {state.error && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '8px 10px',
+            background: 'rgba(248, 81, 73, 0.15)',
+            border: '1px solid rgba(248, 81, 73, 0.4)',
+            borderRadius: 4,
+            fontSize: 11,
+            color: '#f85149',
+            cursor: 'pointer',
+          }}
+          onClick={() => dispatch({ type: 'SET_ERROR', payload: null })}
+          title="Click to dismiss"
+        >
+          {state.error}
         </div>
       )}
     </div>
