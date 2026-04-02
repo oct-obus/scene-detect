@@ -61,6 +61,11 @@ html, body {
 .video-name {
     color: var(--text-muted);
     font-size: 13px;
+    cursor: pointer;
+}
+
+.video-name:hover {
+    color: var(--accent);
 }
 
 .status {

@@ -68,6 +68,7 @@ function onVideoLoaded(info) {
     $('#timeline-container').style.display = '';
     $('#video-info-bar').style.display = '';
     $('#analyze-btn').disabled = false;
+    $('#change-video-btn').style.display = '';
 
     // Try to load existing results
     loadExistingResults();
@@ -103,6 +104,11 @@ function setupVideoPicker() {
     goBtn.addEventListener('click', () => openVideoByPath(input.value));
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') openVideoByPath(input.value);
+    });
+
+    $('#change-video-btn').addEventListener('click', showVideoPicker);
+    $('#video-name').addEventListener('click', () => {
+        if (state.videoInfo && state.videoInfo.filename) showVideoPicker();
     });
 }
 
