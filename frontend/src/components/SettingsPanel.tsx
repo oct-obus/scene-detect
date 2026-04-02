@@ -1,21 +1,36 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAppContext } from '../store';
 import type { AnalysisSettings } from '../types';
 
+const DEFAULT_SETTINGS: AnalysisSettings = {
+  threshold: 0.40,
+  min_scene_len: 15,
+  adaptive_threshold: true,
+  skip_frames: 2,
+  downscale_height: 480,
+  threaded_pipeline: true,
+  detect_faces: false,
+  face_confidence: 0.50,
+  cluster_distance: 0.60,
+};
+
+function loadSettings(): AnalysisSettings {
+  try {
+    const saved = localStorage.getItem('analysisSettings');
+    if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+  } catch { /* ignore */ }
+  return { ...DEFAULT_SETTINGS };
+}
+
 export function SettingsPanel() {
   const { state, startAnalysis, cancelAnalysis, dispatch } = useAppContext();
+  const [settings, setSettings] = useState<AnalysisSettings>(loadSettings);
+  const [showContextMenu, setShowContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  const [settings, setSettings] = useState<AnalysisSettings>({
-    threshold: 0.40,
-    min_scene_len: 15,
-    adaptive_threshold: true,
-    skip_frames: 2,
-    downscale_height: 480,
-    threaded_pipeline: true,
-    detect_faces: false,
-    face_confidence: 0.50,
-    cluster_distance: 0.60,
-  });
+  useEffect(() => {
+    localStorage.setItem('analysisSettings', JSON.stringify(settings));
+  }, [settings]);
 
   const update = useCallback(<K extends keyof AnalysisSettings>(key: K, value: AnalysisSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -25,8 +40,33 @@ export function SettingsPanel() {
     startAnalysis(settings);
   }, [settings, startAnalysis]);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setShowContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const resetSettings = useCallback(() => {
+    setSettings({ ...DEFAULT_SETTINGS });
+    setShowContextMenu(null);
+  }, []);
+
+  useEffect(() => {
+    if (!showContextMenu) return;
+    const handler = () => setShowContextMenu(null);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [showContextMenu]);
+
   return (
-    <div className="panel-content">
+    <div className="panel-content" onContextMenu={handleContextMenu} ref={panelRef}>
+      {showContextMenu && (
+        <div
+          className="context-menu"
+          style={{ position: 'fixed', left: showContextMenu.x, top: showContextMenu.y }}
+        >
+          <div className="menu-item" onClick={resetSettings}>Reset Settings to Default</div>
+        </div>
+      )}
       {!state.videoInfo?.path && (
         <div style={{ marginBottom: 12 }}>
           <button

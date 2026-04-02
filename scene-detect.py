@@ -94,6 +94,46 @@ def calc_histogram(frame: np.ndarray) -> np.ndarray:
     return hist
 
 
+# ── Profiler ──────────────────────────────────────────────────────────────────
+
+class Profiler:
+    def __init__(self):
+        self.enabled = False
+        self._data: dict[str, dict[str, float]] = {}
+        self._lock = threading.Lock()
+
+    def reset(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+    def record(self, name: str, elapsed_ms: float) -> None:
+        if not self.enabled:
+            return
+        with self._lock:
+            if name not in self._data:
+                self._data[name] = {"calls": 0, "total_ms": 0.0}
+            self._data[name]["calls"] += 1
+            self._data[name]["total_ms"] += elapsed_ms
+
+    def get_entries(self) -> list[dict]:
+        with self._lock:
+            total = sum(v["total_ms"] for v in self._data.values()) or 1.0
+            entries = []
+            for name, d in sorted(self._data.items(), key=lambda x: -x[1]["total_ms"]):
+                calls = int(d["calls"])
+                total_ms = d["total_ms"]
+                entries.append({
+                    "name": name,
+                    "calls": calls,
+                    "total_ms": total_ms,
+                    "avg_ms": total_ms / max(calls, 1),
+                    "pct": total_ms / total * 100,
+                })
+            return entries
+
+_profiler = Profiler()
+
+
 # ── Face detection & embedding ────────────────────────────────────────────────
 
 class FaceAnalyzer:
@@ -327,7 +367,9 @@ class SceneDetector:
             window_size = int(self.fps * 4)
 
             while not self.cancelled:
+                t0 = time.time()
                 frame = next_frame()
+                _profiler.record("frame_read", (time.time() - t0) * 1000)
                 if frame is None:
                     break
                 frame_idx += 1
@@ -336,8 +378,14 @@ class SceneDetector:
                 if skip_frames > 1 and frame_idx % skip_frames != 0:
                     continue
 
+                t0 = time.time()
                 curr_hist = calc_histogram(maybe_downscale(frame))
+                _profiler.record("calc_histogram", (time.time() - t0) * 1000)
+
+                t0 = time.time()
                 corr = cv2.compareHist(prev_hist, curr_hist, cv2.HISTCMP_CORREL)
+                _profiler.record("compareHist", (time.time() - t0) * 1000)
+
                 diff = 1.0 - corr
                 score = min(diff, 1.0)
 
@@ -359,7 +407,9 @@ class SceneDetector:
                     if face_analyzer:
                         if progress_callback:
                             progress_callback(frame_idx, self.total_frames, len(self.scenes), "faces")
+                        t0 = time.time()
                         faces = face_analyzer.detect(frame)
+                        _profiler.record("face_detect", (time.time() - t0) * 1000)
                     else:
                         faces = []
 
@@ -375,7 +425,9 @@ class SceneDetector:
                     last_cut_frame = frame_idx
 
                     if thumb_dir:
+                        t0 = time.time()
                         self._save_thumbnail(frame, sc, thumb_dir, thumb_width)
+                        _profiler.record("save_thumbnail", (time.time() - t0) * 1000)
 
                 prev_hist = curr_hist
 
@@ -390,7 +442,9 @@ class SceneDetector:
                     if progress_callback:
                         progress_callback(self.total_frames, self.total_frames, len(self.scenes), "clustering")
                     try:
+                        t0 = time.time()
                         cluster_faces(self.scenes, distance_threshold=cluster_distance)
+                        _profiler.record("cluster_faces", (time.time() - t0) * 1000)
                     except ImportError:
                         raise RuntimeError(
                             "Face clustering requires scikit-learn. Install with: pip install scikit-learn"
@@ -665,6 +719,18 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
         new_id = max_id + 1
         sc.faces[face_idx].character_id = new_id
         return {"ok": True, "new_character_id": new_id}
+
+    @app.get("/api/profiler")
+    async def get_profiler():
+        return {"enabled": _profiler.enabled, "entries": _profiler.get_entries()}
+
+    @app.post("/api/profiler")
+    async def set_profiler(body: dict):
+        enabled = body.get("enabled", False)
+        if enabled and not _profiler.enabled:
+            _profiler.reset()
+        _profiler.enabled = enabled
+        return {"enabled": _profiler.enabled}
 
     @app.websocket("/api/ws")
     async def websocket_endpoint(ws: WebSocket):
