@@ -33,9 +33,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 import cv2
 import numpy as np
 
@@ -660,17 +657,30 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
                     settings = data.get("settings", {})
 
                     async def run_analysis():
+                        ws_open = True
+
+                        async def safe_send(data: dict) -> None:
+                            nonlocal ws_open
+                            if not ws_open:
+                                return
+                            try:
+                                await ws.send_json(data)
+                            except Exception:
+                                ws_open = False
+
                         try:
                             loop = asyncio.get_running_loop()
                             last_update = [0.0]
 
                             def progress_cb(current, total, scene_count, phase="detecting"):
+                                if not ws_open:
+                                    return
                                 now = time.time()
                                 if now - last_update[0] < 0.1 and current < total:
                                     return
                                 last_update[0] = now
                                 asyncio.run_coroutine_threadsafe(
-                                    ws.send_json({
+                                    safe_send({
                                         "type": "progress",
                                         "current": current,
                                         "total": total,
@@ -705,7 +715,7 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
                             if len(scores) > 2000:
                                 step = len(scores) // 2000
                                 scores = scores[::step]
-                            await ws.send_json({
+                            await safe_send({
                                 "type": "complete",
                                 "scenes": scenes_data,
                                 "scores": [round(s, 4) for s in scores],
@@ -713,7 +723,7 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
                                 "total_frames": det.total_frames,
                             })
                         except Exception as e:
-                            await ws.send_json({"type": "error", "message": str(e)})
+                            await safe_send({"type": "error", "message": str(e)})
 
                     asyncio.create_task(run_analysis())
 
@@ -732,6 +742,22 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
     else:
         print("  No video preloaded -- select one from the UI")
     print(f"  Open http://localhost:{port} in your browser\n")
+
+    if sys.platform == "win32":
+        # Suppress harmless ProactorEventLoop errors on Windows socket cleanup
+        _orig_handler = asyncio.get_event_loop().get_exception_handler()
+
+        def _win_exception_handler(loop, context):
+            exc = context.get("exception")
+            if isinstance(exc, (ConnectionResetError, OSError)):
+                return
+            if _orig_handler:
+                _orig_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+
+        asyncio.get_event_loop().set_exception_handler(_win_exception_handler)
+
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
