@@ -25,6 +25,7 @@ import argparse
 import asyncio
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -225,6 +226,9 @@ class SceneDetector:
         progress_callback=None,
         thumb_dir: Optional[str] = None,
         thumb_width: int = 320,
+        skip_frames: int = 1,
+        downscale_height: int = 0,
+        use_threading: bool = True,
     ) -> list[SceneChange]:
         self.cancelled = False
         self.scenes = []
@@ -244,27 +248,78 @@ class SceneDetector:
         if detect_faces:
             face_analyzer = FaceAnalyzer(min_confidence=face_confidence)
 
-        ret, prev_frame = cap.read()
-        if not ret:
+        if thumb_dir:
+            os.makedirs(thumb_dir, exist_ok=True)
+
+        skip_frames = max(1, skip_frames)
+
+        # Threaded decode pipeline: overlap frame decoding with processing
+        frame_queue = queue.Queue(maxsize=64)
+        decode_done = threading.Event()
+
+        def decode_producer():
+            while not self.cancelled:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                while not self.cancelled:
+                    try:
+                        frame_queue.put(frame, timeout=0.5)
+                        break
+                    except queue.Full:
+                        continue
+            decode_done.set()
+
+        if use_threading:
+            reader = threading.Thread(target=decode_producer, daemon=True)
+            reader.start()
+
+        def next_frame():
+            if use_threading:
+                while True:
+                    try:
+                        return frame_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        if decode_done.is_set() and frame_queue.empty():
+                            return None
+                        if self.cancelled:
+                            return None
+            else:
+                ret, frame = cap.read()
+                return frame if ret else None
+
+        def maybe_downscale(frame):
+            if downscale_height > 0:
+                h, w = frame.shape[:2]
+                if h > downscale_height:
+                    scale = downscale_height / h
+                    new_w = int(w * scale)
+                    return cv2.resize(frame, (new_w, downscale_height),
+                                      interpolation=cv2.INTER_AREA)
+            return frame
+
+        prev_frame = next_frame()
+        if prev_frame is None:
             raise RuntimeError("Cannot read first frame")
 
-        prev_hist = calc_histogram(prev_frame)
+        prev_hist = calc_histogram(maybe_downscale(prev_frame))
         last_cut_frame = 0
         frame_idx = 0
 
         window: list[float] = []
         window_size = int(self.fps * 4)
 
-        if thumb_dir:
-            os.makedirs(thumb_dir, exist_ok=True)
-
         while not self.cancelled:
-            ret, frame = cap.read()
-            if not ret:
+            frame = next_frame()
+            if frame is None:
                 break
             frame_idx += 1
 
-            curr_hist = calc_histogram(frame)
+            # Read every frame for accurate timecodes, but only process every Nth
+            if skip_frames > 1 and frame_idx % skip_frames != 0:
+                continue
+
+            curr_hist = calc_histogram(maybe_downscale(frame))
             corr = cv2.compareHist(prev_hist, curr_hist, cv2.HISTCMP_CORREL)
             diff = 1.0 - corr
             score = min(diff, 1.0)
@@ -283,6 +338,7 @@ class SceneDetector:
 
             if score >= effective_threshold and (frame_idx - last_cut_frame) >= min_scene_len:
                 ts = frame_idx / self.fps
+                # Use original (not downscaled) frame for face detection
                 faces = face_analyzer.detect(frame) if face_analyzer else []
 
                 sc = SceneChange(
@@ -303,6 +359,9 @@ class SceneDetector:
 
             if progress_callback and frame_idx % 10 == 0:
                 progress_callback(frame_idx, self.total_frames, len(self.scenes))
+
+        if use_threading:
+            reader.join(timeout=2)
 
         cap.release()
 
@@ -508,6 +567,9 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
                                 progress_callback=progress_cb,
                                 thumb_dir=str(thumb_dir),
                                 thumb_width=settings.get("thumb_width", 320),
+                                skip_frames=settings.get("skip_frames", 1),
+                                downscale_height=settings.get("downscale", 0),
+                                use_threading=settings.get("threading", True),
                             )
 
                         with analysis_lock:
@@ -573,6 +635,9 @@ def run_cli(args):
         progress_callback=progress,
         thumb_dir=thumb_dir,
         thumb_width=args.thumb_width,
+        skip_frames=args.skip_frames,
+        downscale_height=args.downscale,
+        use_threading=not args.no_threading,
     )
 
     print(f"\nFound {len(scenes)} scene change(s):\n")
@@ -623,6 +688,12 @@ def main():
     parser.add_argument("--no-thumbnails", action="store_true")
     parser.add_argument("--thumb-width", type=int, default=320)
     parser.add_argument("--no-adaptive", action="store_true")
+    parser.add_argument("--skip-frames", type=int, default=1,
+                        help="Process every Nth frame (default: 1, no skipping)")
+    parser.add_argument("--downscale", type=int, default=0,
+                        help="Downscale frame height for histogram (0 = disabled)")
+    parser.add_argument("--no-threading", action="store_true",
+                        help="Disable threaded decode pipeline")
 
     face_group = parser.add_argument_group("face detection")
     face_group.add_argument("--faces", action="store_true",

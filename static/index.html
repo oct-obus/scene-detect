@@ -11,7 +11,7 @@
         <!-- Header -->
         <header id="header">
             <div class="header-left">
-                <h1>🎬 Scene Detect</h1>
+                <h1>Scene Detect</h1>
                 <span id="video-name" class="video-name"></span>
             </div>
             <div class="header-right">
@@ -41,6 +41,22 @@
                     <label><input type="checkbox" id="adaptive" checked> Adaptive Threshold</label>
                 </div>
 
+                <div class="setting-group">
+                    <label>Skip Frames <span id="skip-val">1</span></label>
+                    <input type="range" id="skip-frames" min="1" max="10" step="1" value="1">
+                    <p class="hint">Process every Nth frame (1 = all)</p>
+                </div>
+
+                <div class="setting-group">
+                    <label>Downscale Height <span id="downscale-val">0</span>px</label>
+                    <input type="range" id="downscale" min="0" max="1080" step="60" value="0">
+                    <p class="hint">0 = disabled, resize for faster histograms</p>
+                </div>
+
+                <div class="setting-group">
+                    <label><input type="checkbox" id="threading" checked> Threaded Pipeline</label>
+                </div>
+
                 <hr>
 
                 <div class="setting-group">
@@ -60,8 +76,8 @@
 
                 <hr>
 
-                <button id="analyze-btn" class="btn btn-primary">▶ Analyze</button>
-                <button id="cancel-btn" class="btn btn-danger" style="display:none">⏹ Cancel</button>
+                <button id="analyze-btn" class="btn btn-primary">Analyze</button>
+                <button id="cancel-btn" class="btn btn-danger" style="display:none">Cancel</button>
 
                 <!-- Progress -->
                 <div id="progress-section" style="display:none">
@@ -93,14 +109,14 @@
                 <!-- Scene grid -->
                 <div id="scene-grid" class="scene-grid">
                     <div class="empty-state" id="empty-state">
-                        <p>🎥 Click <strong>Analyze</strong> to detect scene changes</p>
+                        <p>Click <strong>Analyze</strong> to detect scene changes</p>
                     </div>
                 </div>
 
                 <!-- Scene diff modal -->
                 <div id="diff-modal" class="modal" style="display:none">
                     <div class="modal-content">
-                        <button class="modal-close" id="diff-close">✕</button>
+                        <button class="modal-close" id="diff-close">x</button>
                         <h3 id="diff-title">Scene Diff</h3>
                         <div class="diff-container">
                             <div class="diff-frame">

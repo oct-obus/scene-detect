@@ -61,6 +61,8 @@ function setupSliders() {
         ['face-confidence', 'face-conf-val', (v) => parseFloat(v).toFixed(2)],
         ['cluster-distance', 'cluster-dist-val', (v) => parseFloat(v).toFixed(2)],
         ['zoom', 'zoom-val', (v) => v],
+        ['skip-frames', 'skip-val', (v) => v],
+        ['downscale', 'downscale-val', (v) => v],
     ];
 
     for (const [id, valId, fmt] of sliders) {
@@ -115,6 +117,9 @@ function startAnalysis() {
         faces: $('#faces').checked,
         face_confidence: parseFloat($('#face-confidence').value),
         cluster_distance: parseFloat($('#cluster-distance').value),
+        skip_frames: parseInt($('#skip-frames').value),
+        downscale: parseInt($('#downscale').value),
+        threading: $('#threading').checked,
     };
 
     $('#analyze-btn').style.display = 'none';
@@ -225,8 +230,8 @@ function renderGrid() {
             <img src="/api/thumbnail/${scene.frame}" alt="Scene at ${scene.timecode}" loading="lazy">
             ${faceDots}
             <div class="scene-card-actions">
-                <button class="scene-action-btn" data-action="diff" title="Compare with previous">🔍</button>
-                <button class="scene-action-btn" data-action="remove" title="Remove (false positive)">✕</button>
+                <button class="scene-action-btn" data-action="diff" title="Compare with previous">Diff</button>
+                <button class="scene-action-btn" data-action="remove" title="Remove (false positive)">x</button>
             </div>
             <div class="scene-card-info">
                 <span class="scene-card-time">${scene.timecode.substring(3, 12)}</span>
