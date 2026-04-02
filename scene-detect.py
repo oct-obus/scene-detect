@@ -98,8 +98,12 @@ def calc_histogram(frame: np.ndarray) -> np.ndarray:
 
 class FaceAnalyzer:
     def __init__(self, min_confidence: float = 0.5):
-        import mediapipe as mp
-        self.detector = mp.solutions.face_detection.FaceDetection(
+        try:
+            from mediapipe.python.solutions import face_detection
+        except ImportError:
+            import mediapipe as mp
+            face_detection = mp.solutions.face_detection
+        self.detector = face_detection.FaceDetection(
             model_selection=1,
             min_detection_confidence=min_confidence,
         )
