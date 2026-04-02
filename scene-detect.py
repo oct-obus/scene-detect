@@ -571,8 +571,8 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
                                 progress_callback=progress_cb,
                                 thumb_dir=str(thumb_dir),
                                 thumb_width=settings.get("thumb_width", 320),
-                                skip_frames=settings.get("skip_frames", 1),
-                                downscale_height=settings.get("downscale", 0),
+                                skip_frames=settings.get("skip_frames", 2),
+                                downscale_height=settings.get("downscale", 480),
                                 use_threading=settings.get("threading", True),
                             )
 
@@ -692,9 +692,9 @@ def main():
     parser.add_argument("--no-thumbnails", action="store_true")
     parser.add_argument("--thumb-width", type=int, default=320)
     parser.add_argument("--no-adaptive", action="store_true")
-    parser.add_argument("--skip-frames", type=int, default=1,
-                        help="Process every Nth frame (default: 1, no skipping)")
-    parser.add_argument("--downscale", type=int, default=0,
+    parser.add_argument("--skip-frames", type=int, default=2,
+                        help="Process every Nth frame (default: 2)")
+    parser.add_argument("--downscale", type=int, default=480,
                         help="Downscale frame height for histogram (0 = disabled)")
     parser.add_argument("--no-threading", action="store_true",
                         help="Disable threaded decode pipeline")
