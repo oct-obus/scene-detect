@@ -16,9 +16,10 @@ const state = {
     faceView: 'grouped',
     analyzing: false,
     ws: null,
+    videoDuration: 0,
 };
 
-// Character colors — deterministic from character ID
+// Character colors -- deterministic from character ID
 function charColor(id) {
     const hues = [210, 120, 0, 280, 50, 330, 170, 30, 250, 90];
     const hue = hues[id % hues.length];
@@ -31,13 +32,16 @@ async function init() {
     // Fetch video info
     const res = await fetch('/api/video-info');
     state.videoInfo = await res.json();
+    state.videoDuration = state.videoInfo.duration;
     $('#video-name').textContent = state.videoInfo.filename +
-        ` (${state.videoInfo.width}×${state.videoInfo.height}, ${state.videoInfo.fps.toFixed(1)} fps, ${formatTime(state.videoInfo.duration)})`;
+        ` (${state.videoInfo.width}x${state.videoInfo.height}, ${state.videoInfo.fps.toFixed(1)} fps, ${formatTime(state.videoInfo.duration)})`;
 
     setupSliders();
     setupButtons();
     setupKeyboard();
-    setupDragSelect();
+    setupVideoPlayer();
+    setupTimelineClick();
+    setupSettingsToggle();
 
     // Try to load existing results
     const scenesRes = await fetch('/api/scenes');
@@ -83,12 +87,118 @@ function setupSliders() {
     });
 }
 
+// ── Settings panel toggle ────────────────────────────────────────────────────
+
+function setupSettingsToggle() {
+    const toggle = $('#settings-toggle');
+    const panel = $('#settings-panel');
+    toggle.addEventListener('click', () => {
+        panel.classList.toggle('collapsed');
+        toggle.textContent = panel.classList.contains('collapsed') ? '>>' : '<<';
+    });
+}
+
+// ── Video player ─────────────────────────────────────────────────────────────
+
+function setupVideoPlayer() {
+    const video = $('#video-player');
+
+    video.addEventListener('loadedmetadata', () => {
+        state.videoDuration = video.duration;
+    });
+
+    video.addEventListener('timeupdate', () => {
+        updateVideoInfoBar(video.currentTime);
+        highlightActiveScene(video.currentTime);
+    });
+}
+
+function updateVideoInfoBar(currentTime) {
+    const timecodeEl = $('#video-timecode');
+    const sceneInfoEl = $('#video-scene-info');
+
+    timecodeEl.textContent = formatTimecode(currentTime);
+
+    // Find nearest scene
+    const visibleScenes = state.scenes.filter(s => !s.removed);
+    let nearestScene = null;
+    let nearestIdx = -1;
+    for (let i = visibleScenes.length - 1; i >= 0; i--) {
+        if (visibleScenes[i].timestamp_sec <= currentTime) {
+            nearestScene = visibleScenes[i];
+            nearestIdx = i;
+            break;
+        }
+    }
+
+    if (nearestScene) {
+        sceneInfoEl.textContent = `Scene ${nearestIdx + 1}/${visibleScenes.length} (${nearestScene.timecode.substring(3, 12)}, score: ${(nearestScene.score * 100).toFixed(0)}%)`;
+    } else if (visibleScenes.length > 0) {
+        sceneInfoEl.textContent = `Before scene 1/${visibleScenes.length}`;
+    } else {
+        sceneInfoEl.textContent = '';
+    }
+}
+
+function highlightActiveScene(currentTime) {
+    const visibleScenes = state.scenes.filter(s => !s.removed);
+    let activeFrame = null;
+
+    for (let i = visibleScenes.length - 1; i >= 0; i--) {
+        if (visibleScenes[i].timestamp_sec <= currentTime) {
+            activeFrame = visibleScenes[i].frame;
+            break;
+        }
+    }
+
+    // Update active class on scene cards
+    $$('#scene-sidebar .scene-card').forEach(card => {
+        const frame = parseInt(card.dataset.frame);
+        card.classList.toggle('active', frame === activeFrame);
+    });
+
+    // Auto-scroll to active card if playing
+    const video = $('#video-player');
+    if (!video.paused && activeFrame !== null) {
+        const activeCard = $(`#scene-sidebar .scene-card[data-frame="${activeFrame}"]`);
+        if (activeCard) {
+            const grid = $('#scene-grid');
+            const cardRect = activeCard.getBoundingClientRect();
+            const gridRect = grid.getBoundingClientRect();
+            if (cardRect.top < gridRect.top || cardRect.bottom > gridRect.bottom) {
+                activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    }
+}
+
+function seekVideo(timeSec) {
+    const video = $('#video-player');
+    video.currentTime = timeSec;
+}
+
+// ── Timeline click-to-seek ───────────────────────────────────────────────────
+
+function setupTimelineClick() {
+    const timeline = $('#timeline');
+    timeline.addEventListener('click', (e) => {
+        // If clicking a marker, let the marker handler deal with it
+        if (e.target.classList.contains('timeline-marker')) return;
+
+        const rect = timeline.getBoundingClientRect();
+        const pct = (e.clientX - rect.left) / rect.width;
+        const duration = state.videoDuration || (state.totalFrames / state.fps);
+        if (duration > 0) {
+            seekVideo(pct * duration);
+        }
+    });
+}
+
 // ── Buttons ──────────────────────────────────────────────────────────────────
 
 function setupButtons() {
     $('#analyze-btn').addEventListener('click', startAnalysis);
     $('#cancel-btn').addEventListener('click', cancelAnalysis);
-    $('#diff-close').addEventListener('click', () => $('#diff-modal').style.display = 'none');
 
     $('#face-view-flat').addEventListener('click', () => {
         state.faceView = 'flat';
@@ -125,7 +235,8 @@ function startAnalysis() {
     $('#analyze-btn').style.display = 'none';
     $('#cancel-btn').style.display = '';
     $('#progress-section').style.display = 'block';
-    $('#empty-state')?.remove();
+    const emptyState = $('#empty-state');
+    if (emptyState) emptyState.remove();
     setStatus('analyzing', 'Analyzing...');
 
     // Clear previous results
@@ -147,7 +258,7 @@ function startAnalysis() {
         if (msg.type === 'progress') {
             $('#progress-fill').style.width = msg.percent + '%';
             $('#progress-text').textContent =
-                `${msg.percent}% — ${msg.scenes_found} scene${msg.scenes_found !== 1 ? 's' : ''} found`;
+                `${msg.percent}% -- ${msg.scenes_found} scene${msg.scenes_found !== 1 ? 's' : ''} found`;
         }
 
         if (msg.type === 'complete') {
@@ -199,7 +310,7 @@ function renderAll() {
     renderFacePanel();
 }
 
-// ── Scene grid ───────────────────────────────────────────────────────────────
+// ── Scene grid (sidebar list) ────────────────────────────────────────────────
 
 function renderGrid() {
     const grid = $('#scene-grid');
@@ -228,22 +339,20 @@ function renderGrid() {
 
         card.innerHTML = `
             <img src="/api/thumbnail/${scene.frame}" alt="Scene at ${scene.timecode}" loading="lazy">
-            ${faceDots}
-            <div class="scene-card-actions">
-                <button class="scene-action-btn" data-action="diff" title="Compare with previous">Diff</button>
-                <button class="scene-action-btn" data-action="remove" title="Remove (false positive)">x</button>
-            </div>
             <div class="scene-card-info">
                 <span class="scene-card-time">${scene.timecode.substring(3, 12)}</span>
                 <span class="scene-card-score">${(scene.score * 100).toFixed(0)}%</span>
+                ${faceDots}
+            </div>
+            <div class="scene-card-actions">
+                <button class="scene-action-btn" data-action="remove" title="Remove (false positive)">x</button>
             </div>
         `;
 
-        // Click to select
+        // Click to select and seek video
         card.addEventListener('click', (e) => {
             if (e.target.closest('.scene-action-btn')) return;
             if (e.shiftKey && state.selectedScene !== null) {
-                // Range select
                 const frames = visibleScenes.map(s => s.frame);
                 const a = frames.indexOf(state.selectedScene);
                 const b = frames.indexOf(scene.frame);
@@ -262,6 +371,7 @@ function renderGrid() {
                 state.selectedScenes.add(scene.frame);
             }
             state.selectedScene = scene.frame;
+            seekVideo(scene.timestamp_sec);
             renderGrid();
             highlightTimelineMarker(scene.frame);
         });
@@ -271,7 +381,6 @@ function renderGrid() {
             const btn = e.target.closest('.scene-action-btn');
             if (!btn) return;
             const action = btn.dataset.action;
-            if (action === 'diff') showDiff(scene);
             if (action === 'remove') removeScene(scene.frame);
         });
 
@@ -297,19 +406,19 @@ function renderTimeline() {
         marker.style.left = `calc(${pct}% - 1px)`;
         marker.dataset.frame = scene.frame;
 
-        // Color by character if face detected
         if (scene.faces && scene.faces.length > 0) {
             marker.style.background = charColor(scene.faces[0].character_id);
         }
 
-        marker.addEventListener('click', () => {
+        marker.addEventListener('click', (e) => {
+            e.stopPropagation();
             state.selectedScenes.clear();
             state.selectedScenes.add(scene.frame);
             state.selectedScene = scene.frame;
+            seekVideo(scene.timestamp_sec);
             renderGrid();
             highlightTimelineMarker(scene.frame);
-            // Scroll grid to scene
-            const card = $(`.scene-card[data-frame="${scene.frame}"]`);
+            const card = $(`#scene-sidebar .scene-card[data-frame="${scene.frame}"]`);
             if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
 
@@ -362,18 +471,6 @@ function renderHeatmap() {
     }
 }
 
-// ── Scene diff ───────────────────────────────────────────────────────────────
-
-function showDiff(scene) {
-    const idx = state.scenes.indexOf(scene);
-    const prevFrame = idx > 0 ? state.scenes[idx - 1].frame : 0;
-
-    $('#diff-prev').src = `/api/frame/${Math.max(0, scene.frame - 1)}`;
-    $('#diff-next').src = `/api/frame/${scene.frame}`;
-    $('#diff-title').textContent = `Scene Change at ${scene.timecode}`;
-    $('#diff-modal').style.display = 'flex';
-}
-
 // ── Remove scene ─────────────────────────────────────────────────────────────
 
 async function removeScene(frame) {
@@ -411,7 +508,6 @@ function renderFacePanel() {
     });
 
     if (state.faceView === 'grouped') {
-        // Group by character_id
         const groups = {};
         allFaces.forEach(f => {
             const id = f.character_id;
@@ -440,7 +536,6 @@ function renderFacePanel() {
                 </div>
             `;
 
-            // Click face crop → scroll to that scene
             group.querySelectorAll('.face-crop').forEach(img => {
                 img.addEventListener('click', () => {
                     const si = parseInt(img.dataset.sceneIdx);
@@ -448,13 +543,13 @@ function renderFacePanel() {
                     state.selectedScenes.clear();
                     state.selectedScenes.add(scene.frame);
                     state.selectedScene = scene.frame;
+                    seekVideo(scene.timestamp_sec);
                     renderGrid();
                     highlightTimelineMarker(scene.frame);
-                    const card = $(`.scene-card[data-frame="${scene.frame}"]`);
+                    const card = $(`#scene-sidebar .scene-card[data-frame="${scene.frame}"]`);
                     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 });
 
-                // Context menu for split
                 img.addEventListener('contextmenu', (e) => {
                     e.preventDefault();
                     splitFace(parseInt(img.dataset.sceneIdx), parseInt(img.dataset.faceIdx));
@@ -479,7 +574,6 @@ function renderFacePanel() {
             list.appendChild(group);
         }
     } else {
-        // Flat view
         for (const f of allFaces) {
             const item = document.createElement('div');
             item.className = 'face-flat-item';
@@ -487,15 +581,16 @@ function renderFacePanel() {
                 <img src="/api/face-crop/${f.sceneIdx}/${f.faceIdx}" loading="lazy">
                 <div class="face-flat-info">
                     <strong style="color:${charColor(f.character_id)}">Char #${f.character_id}</strong><br>
-                    ${f.scene.timecode.substring(3, 12)} · ${(f.confidence * 100).toFixed(0)}%
+                    ${f.scene.timecode.substring(3, 12)} -- ${(f.confidence * 100).toFixed(0)}%
                 </div>
             `;
             item.addEventListener('click', () => {
                 const scene = f.scene;
                 state.selectedScenes.clear();
                 state.selectedScenes.add(scene.frame);
+                seekVideo(scene.timestamp_sec);
                 renderGrid();
-                const card = $(`.scene-card[data-frame="${scene.frame}"]`);
+                const card = $(`#scene-sidebar .scene-card[data-frame="${scene.frame}"]`);
                 if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
             });
             list.appendChild(item);
@@ -509,7 +604,6 @@ async function mergeCharacters(sourceId, targetId) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: sourceId, target: targetId }),
     });
-    // Update local state
     for (const scene of state.scenes) {
         for (const face of (scene.faces || [])) {
             if (face.character_id === sourceId) face.character_id = targetId;
@@ -535,10 +629,10 @@ async function splitFace(sceneIdx, faceIdx) {
 
 function setupKeyboard() {
     document.addEventListener('keydown', (e) => {
-        // Don't trigger in inputs
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
         const visibleScenes = state.scenes.filter(s => !s.removed);
+        const video = $('#video-player');
 
         if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
             e.preventDefault();
@@ -555,9 +649,10 @@ function setupKeyboard() {
             state.selectedScenes.clear();
             state.selectedScenes.add(scene.frame);
             state.selectedScene = scene.frame;
+            seekVideo(scene.timestamp_sec);
             renderGrid();
             highlightTimelineMarker(scene.frame);
-            const card = $(`.scene-card[data-frame="${scene.frame}"]`);
+            const card = $(`#scene-sidebar .scene-card[data-frame="${scene.frame}"]`);
             if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
@@ -569,7 +664,6 @@ function setupKeyboard() {
         }
 
         if (e.key === 'Escape') {
-            $('#diff-modal').style.display = 'none';
             $('#shortcuts-help').style.display = 'none';
             state.selectedScenes.clear();
             state.selectedScene = null;
@@ -583,67 +677,12 @@ function setupKeyboard() {
 
         if (e.key === ' ') {
             e.preventDefault();
-            // Preview: just show the diff for the selected scene
-            if (state.selectedScene !== null) {
-                const scene = state.scenes.find(s => s.frame === state.selectedScene);
-                if (scene) showDiff(scene);
+            if (video.paused) {
+                video.play();
+            } else {
+                video.pause();
             }
         }
-    });
-}
-
-// ── Drag selection ───────────────────────────────────────────────────────────
-
-function setupDragSelect() {
-    const grid = $('#scene-grid');
-    let dragging = false;
-    let startX, startY;
-    let rect = null;
-
-    grid.addEventListener('mousedown', (e) => {
-        if (e.target.closest('.scene-card') || e.button !== 0) return;
-        dragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        rect = document.createElement('div');
-        rect.className = 'selection-rect';
-        document.body.appendChild(rect);
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!dragging || !rect) return;
-        const x = Math.min(e.clientX, startX);
-        const y = Math.min(e.clientY, startY);
-        const w = Math.abs(e.clientX - startX);
-        const h = Math.abs(e.clientY - startY);
-        rect.style.left = x + 'px';
-        rect.style.top = y + 'px';
-        rect.style.width = w + 'px';
-        rect.style.height = h + 'px';
-    });
-
-    document.addEventListener('mouseup', (e) => {
-        if (!dragging || !rect) return;
-        dragging = false;
-
-        const selRect = rect.getBoundingClientRect();
-        rect.remove();
-        rect = null;
-
-        if (selRect.width < 5 && selRect.height < 5) return;
-
-        if (!e.ctrlKey && !e.metaKey) {
-            state.selectedScenes.clear();
-        }
-
-        $$('.scene-card').forEach(card => {
-            const r = card.getBoundingClientRect();
-            if (r.left < selRect.right && r.right > selRect.left &&
-                r.top < selRect.bottom && r.bottom > selRect.top) {
-                state.selectedScenes.add(parseInt(card.dataset.frame));
-            }
-        });
-        renderGrid();
     });
 }
 
@@ -659,6 +698,16 @@ function formatTime(seconds) {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatTimecode(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    const hh = String(h).padStart(2, '0');
+    const mm = String(m).padStart(2, '0');
+    const ss = s.toFixed(3).padStart(6, '0');
+    return `${hh}:${mm}:${ss}`;
 }
 
 // ── Resize handling ──────────────────────────────────────────────────────────

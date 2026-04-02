@@ -415,6 +415,10 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
     async def index():
         return FileResponse(str(static_dir / "index.html"))
 
+    @app.get("/api/video")
+    async def serve_video():
+        return FileResponse(video_path, media_type="video/mp4", filename=os.path.basename(video_path))
+
     @app.get("/api/video-info")
     async def video_info():
         cap = cv2.VideoCapture(video_path)

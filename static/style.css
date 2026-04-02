@@ -18,8 +18,9 @@
     --danger: #f85149;
     --success: #3fb950;
     --warning: #d29922;
-    --thumb-size: 200px;
+    --thumb-size: 120px;
     --panel-width: 260px;
+    --sidebar-width: 280px;
     --header-height: 48px;
     --timeline-height: 60px;
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
@@ -108,6 +109,46 @@ html, body {
     border-left: 1px solid var(--border);
     width: 280px;
     min-width: 280px;
+}
+
+/* ── Settings panel collapse ──────────────────────────────────────────────── */
+
+#settings-panel {
+    position: relative;
+    transition: width 0.2s, min-width 0.2s, padding 0.2s;
+}
+
+#settings-panel.collapsed {
+    width: 40px;
+    min-width: 40px;
+    padding: 8px 4px;
+    overflow: hidden;
+}
+
+#settings-panel.collapsed .settings-content {
+    display: none;
+}
+
+.panel-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.panel-toggle:hover {
+    background: var(--border);
+    color: var(--text);
 }
 
 /* ── Settings ─────────────────────────────────────────────────────────────── */
@@ -233,6 +274,53 @@ hr {
     text-align: center;
 }
 
+/* ── Center content ───────────────────────────────────────────────────────── */
+
+#center-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+/* ── Video player ─────────────────────────────────────────────────────────── */
+
+#video-section {
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+#video-player {
+    width: 100%;
+    max-height: 60vh;
+    background: #000;
+    border-radius: 4px;
+    display: block;
+}
+
+/* ── Video info bar ───────────────────────────────────────────────────────── */
+
+#video-info-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 4px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+#video-timecode {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: var(--text);
+}
+
 /* ── Timeline ─────────────────────────────────────────────────────────────── */
 
 #timeline-container {
@@ -241,6 +329,7 @@ hr {
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     padding: 8px 12px;
+    flex-shrink: 0;
 }
 
 #timeline {
@@ -298,61 +387,84 @@ hr {
     white-space: nowrap;
 }
 
-/* ── Scene grid ───────────────────────────────────────────────────────────── */
+/* ── Scene sidebar (right) ────────────────────────────────────────────────── */
 
-#content {
-    flex: 1;
+#scene-sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
+    flex-shrink: 0;
     overflow: hidden;
 }
 
-.scene-grid {
+#scene-sidebar h2 {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 12px 12px 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+#scene-grid {
     flex: 1;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size), 1fr));
-    gap: 8px;
-    padding: 12px;
     overflow-y: auto;
-    align-content: start;
+    padding: 0 8px 8px;
 }
 
-.scene-card {
-    position: relative;
-    border-radius: 6px;
-    overflow: hidden;
-    border: 2px solid transparent;
+/* ── Scene cards (sidebar compact list) ───────────────────────────────────── */
+
+#scene-sidebar .scene-card {
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 4px;
     cursor: pointer;
-    transition: border-color 0.15s, transform 0.1s;
-    background: var(--bg-secondary);
+    align-items: center;
+    border: 2px solid transparent;
+    transition: border-color 0.15s, background 0.15s;
+    margin-bottom: 4px;
+    position: relative;
 }
 
-.scene-card:hover {
+#scene-sidebar .scene-card:hover {
+    background: var(--bg-tertiary);
     border-color: var(--border);
-    transform: translateY(-1px);
 }
 
-.scene-card.selected {
+#scene-sidebar .scene-card.selected {
     border-color: var(--accent);
 }
 
-.scene-card.removed {
+#scene-sidebar .scene-card.active {
+    border-color: var(--success);
+    background: rgba(63, 185, 80, 0.08);
+}
+
+#scene-sidebar .scene-card.removed {
     opacity: 0.3;
 }
 
-.scene-card img {
-    width: 100%;
-    display: block;
+#scene-sidebar .scene-card img {
+    width: var(--thumb-size);
+    height: auto;
+    border-radius: 3px;
+    flex-shrink: 0;
     aspect-ratio: 16/9;
     object-fit: cover;
     background: var(--bg-tertiary);
 }
 
-.scene-card-info {
-    padding: 4px 8px 6px;
+#scene-sidebar .scene-card-info {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+    min-width: 0;
 }
 
 .scene-card-time {
@@ -367,11 +479,9 @@ hr {
 }
 
 .scene-card-faces {
-    position: absolute;
-    top: 4px;
-    right: 4px;
     display: flex;
     gap: 2px;
+    margin-top: 2px;
 }
 
 .face-dot {
@@ -384,26 +494,26 @@ hr {
 .scene-card-actions {
     position: absolute;
     top: 4px;
-    left: 4px;
+    right: 4px;
     display: flex;
     gap: 4px;
     opacity: 0;
     transition: opacity 0.15s;
 }
 
-.scene-card:hover .scene-card-actions {
+#scene-sidebar .scene-card:hover .scene-card-actions {
     opacity: 1;
 }
 
 .scene-action-btn {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border-radius: 4px;
     background: rgba(0,0,0,0.6);
     border: none;
     color: white;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -416,79 +526,12 @@ hr {
 /* ── Empty state ──────────────────────────────────────────────────────────── */
 
 .empty-state {
-    grid-column: 1 / -1;
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 300px;
+    height: 100px;
     color: var(--text-muted);
-    font-size: 16px;
-}
-
-/* ── Diff modal ───────────────────────────────────────────────────────────── */
-
-.modal {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.modal-content {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 24px;
-    max-width: 900px;
-    width: 90%;
-    position: relative;
-}
-
-.modal-close {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 18px;
-    cursor: pointer;
-}
-
-.modal-close:hover {
-    color: var(--text);
-}
-
-.diff-container {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-top: 16px;
-}
-
-.diff-frame {
-    flex: 1;
-    text-align: center;
-}
-
-.diff-frame p {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-bottom: 8px;
-}
-
-.diff-frame img {
-    width: 100%;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-}
-
-.diff-arrow {
-    font-size: 24px;
-    color: var(--text-muted);
+    font-size: 13px;
 }
 
 /* ── Face panel ───────────────────────────────────────────────────────────── */
@@ -645,14 +688,4 @@ kbd {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
-}
-
-/* ── Drag selection ───────────────────────────────────────────────────────── */
-
-.selection-rect {
-    position: fixed;
-    border: 1px solid var(--accent);
-    background: rgba(88, 166, 255, 0.1);
-    pointer-events: none;
-    z-index: 999;
 }
