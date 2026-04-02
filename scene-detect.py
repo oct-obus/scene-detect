@@ -744,19 +744,17 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
     print(f"  Open http://localhost:{port} in your browser\n")
 
     if sys.platform == "win32":
-        # Suppress harmless ProactorEventLoop errors on Windows socket cleanup
-        _orig_handler = asyncio.get_event_loop().get_exception_handler()
+        @app.on_event("startup")
+        async def _suppress_win_socket_errors():
+            loop = asyncio.get_running_loop()
 
-        def _win_exception_handler(loop, context):
-            exc = context.get("exception")
-            if isinstance(exc, (ConnectionResetError, OSError)):
-                return
-            if _orig_handler:
-                _orig_handler(loop, context)
-            else:
+            def _handler(loop, context):
+                exc = context.get("exception")
+                if isinstance(exc, (ConnectionResetError, OSError)):
+                    return
                 loop.default_exception_handler(context)
 
-        asyncio.get_event_loop().set_exception_handler(_win_exception_handler)
+            loop.set_exception_handler(_handler)
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
