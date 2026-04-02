@@ -18,26 +18,32 @@ Video scene change detection with optional face re-identification and a web UI.
 - Thumbnail generation for detected scenes
 - JSON export of results
 
-## Quick Start (uv)
+## Setup
 
 ```bash
-# Install dependencies and run in one command
-uv run --with opencv-python-headless --with numpy --with fastapi --with uvicorn --with websockets scene-detect.py video.mp4 --ui
-
-# CLI only (no web UI deps needed)
-uv run --with opencv-python-headless --with numpy scene-detect.py video.mp4
-
-# With face detection
-uv run --with opencv-python-headless --with numpy --with mediapipe --with scikit-learn scene-detect.py video.mp4 --faces
+uv venv
+source .venv/bin/activate
 ```
 
-Or set up a project environment:
+### CLI only
 
 ```bash
-uv init --bare
-uv add opencv-python-headless numpy fastapi uvicorn websockets
-uv add --optional faces mediapipe scikit-learn
-uv run scene-detect.py video.mp4 --ui
+uv pip install opencv-python-headless numpy
+python scene-detect.py video.mp4
+```
+
+### Web UI
+
+```bash
+uv pip install opencv-python-headless numpy fastapi uvicorn websockets
+python scene-detect.py video.mp4 --ui
+```
+
+### Face detection (optional add-on)
+
+```bash
+uv pip install mediapipe scikit-learn
+python scene-detect.py video.mp4 --faces
 ```
 
 ## Usage
