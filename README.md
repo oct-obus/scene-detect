@@ -22,7 +22,8 @@ Video scene change detection with optional face re-identification and a web UI.
 
 ```bash
 uv venv
-source .venv/bin/activate
+source .venv/bin/activate        # Linux/macOS
+# .venv\Scripts\activate          # Windows (PowerShell)
 ```
 
 ### CLI only
