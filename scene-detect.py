@@ -26,11 +26,15 @@ import asyncio
 import json
 import os
 import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import cv2
 import numpy as np
@@ -657,7 +661,7 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
 
                     async def run_analysis():
                         try:
-                            loop = asyncio.get_event_loop()
+                            loop = asyncio.get_running_loop()
                             last_update = [0.0]
 
                             def progress_cb(current, total, scene_count, phase="detecting"):
