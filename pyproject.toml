@@ -1,0 +1,17 @@
+[project]
+name = "scene-detect"
+version = "0.1.0"
+description = "Video scene change detection with face re-identification and web UI"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python-headless",
+    "numpy",
+    "fastapi",
+    "uvicorn",
+    "websockets",
+    "mediapipe",
+    "scikit-learn",
+]
+
+[project.scripts]
+scene-detect = "scene_detect:main"

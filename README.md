@@ -10,42 +10,27 @@ Video scene change detection with optional face re-identification and a web UI.
 - Face clustering across scenes to track recurring characters (agglomerative clustering)
 - Threaded decode pipeline for overlapping frame reads with processing
 - Frame skipping and downscaling options for faster analysis on large videos
-- Interactive web UI with real-time progress, timeline heatmap, and scene grid
-- Scene diff viewer to compare frames across cuts
+- Dockable panel web UI (React + dockview) with real-time progress via WebSocket
+- Timeline heatmap, scene grid, video player with frame-accurate scrubbing
 - Drag-and-drop face cluster merging and right-click splitting
-- Keyboard shortcuts for scene navigation, removal, and preview
-- Drag-select multiple scenes in the grid
+- File picker to browse and load videos from within the UI
 - Thumbnail generation for detected scenes
 - JSON export of results
 
 ## Setup
 
+All dependencies are declared in `pyproject.toml`. Install with uv:
+
 ```bash
-uv venv
-source .venv/bin/activate        # Linux/macOS
-# .venv\Scripts\activate          # Windows (PowerShell)
+uv sync
 ```
 
-### CLI only
+Or with pip in a venv:
 
 ```bash
-uv pip install opencv-python-headless numpy
-python scene-detect.py video.mp4
-```
-
-### Web UI
-
-```bash
-uv pip install opencv-python-headless numpy fastapi uvicorn websockets
-python scene-detect.py video.mp4 --ui
-python scene-detect.py --ui                   # no video -- pick from browser
-```
-
-### Face detection (optional add-on)
-
-```bash
-uv pip install mediapipe scikit-learn
-python scene-detect.py video.mp4 --faces
+python -m venv .venv
+source .venv/bin/activate
+pip install .
 ```
 
 ## Usage
@@ -70,29 +55,33 @@ python scene-detect.py video.mp4 --threshold 0.3 --min-scene-len 30
 
 ```bash
 python scene-detect.py video.mp4 --ui
+python scene-detect.py --ui                   # no video -- pick from browser
 python scene-detect.py video.mp4 --ui --port 8500
+```
+
+Open `http://localhost:8500` in a browser. The UI has five dockable panels: Settings, Video, Scenes, Faces, and Timeline. Drag panel tabs to rearrange the layout.
+
+## Frontend development
+
+The frontend source lives in `frontend/`. To iterate on it:
+
+```bash
+cd frontend
+npm install
+npm run dev       # starts Vite dev server with proxy to backend on :8500
+```
+
+To build the production bundle (outputs to `static/`):
+
+```bash
+cd frontend
+npm run build
 ```
 
 ## Dependencies
 
-Core:
+All managed via `pyproject.toml`:
 
-```
-opencv-python-headless
-numpy
-```
-
-Optional (face detection):
-
-```
-mediapipe
-scikit-learn
-```
-
-Optional (web UI):
-
-```
-fastapi
-uvicorn
-websockets
-```
+- opencv-python-headless, numpy -- core detection
+- fastapi, uvicorn, websockets -- web UI server
+- mediapipe, scikit-learn -- face detection and clustering
