@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scene Detect</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-left">
+                <h1>🎬 Scene Detect</h1>
+                <span id="video-name" class="video-name"></span>
+            </div>
+            <div class="header-right">
+                <span id="status" class="status">Ready</span>
+            </div>
+        </header>
+
+        <!-- Main layout -->
+        <div id="main-layout">
+            <!-- Settings sidebar (left) -->
+            <aside id="settings-panel" class="panel">
+                <h2>Settings</h2>
+
+                <div class="setting-group">
+                    <label>Threshold <span id="threshold-val">0.40</span></label>
+                    <input type="range" id="threshold" min="0.05" max="1" step="0.05" value="0.4">
+                    <p class="hint">Lower = more sensitive</p>
+                </div>
+
+                <div class="setting-group">
+                    <label>Min Scene Length <span id="min-scene-val">15</span></label>
+                    <input type="range" id="min-scene-len" min="1" max="120" step="1" value="15">
+                    <p class="hint">Minimum frames between cuts</p>
+                </div>
+
+                <div class="setting-group">
+                    <label><input type="checkbox" id="adaptive" checked> Adaptive Threshold</label>
+                </div>
+
+                <hr>
+
+                <div class="setting-group">
+                    <label><input type="checkbox" id="faces"> Face Detection</label>
+                </div>
+
+                <div class="setting-group face-setting" style="display:none">
+                    <label>Face Confidence <span id="face-conf-val">0.50</span></label>
+                    <input type="range" id="face-confidence" min="0.1" max="1" step="0.05" value="0.5">
+                </div>
+
+                <div class="setting-group face-setting" style="display:none">
+                    <label>Cluster Distance <span id="cluster-dist-val">0.60</span></label>
+                    <input type="range" id="cluster-distance" min="0.1" max="1.5" step="0.05" value="0.6">
+                    <p class="hint">Lower = stricter matching</p>
+                </div>
+
+                <hr>
+
+                <button id="analyze-btn" class="btn btn-primary">▶ Analyze</button>
+                <button id="cancel-btn" class="btn btn-danger" style="display:none">⏹ Cancel</button>
+
+                <!-- Progress -->
+                <div id="progress-section" style="display:none">
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <p id="progress-text" class="progress-text">0%</p>
+                </div>
+
+                <hr>
+
+                <div class="setting-group">
+                    <label>Zoom <span id="zoom-val">200</span>px</label>
+                    <input type="range" id="zoom" min="80" max="600" step="10" value="200">
+                </div>
+            </aside>
+
+            <!-- Center content -->
+            <main id="content">
+                <!-- Timeline -->
+                <div id="timeline-container">
+                    <div id="timeline">
+                        <canvas id="heatmap-canvas"></canvas>
+                        <div id="timeline-markers"></div>
+                    </div>
+                    <div id="timeline-tooltip" class="tooltip" style="display:none"></div>
+                </div>
+
+                <!-- Scene grid -->
+                <div id="scene-grid" class="scene-grid">
+                    <div class="empty-state" id="empty-state">
+                        <p>🎥 Click <strong>Analyze</strong> to detect scene changes</p>
+                    </div>
+                </div>
+
+                <!-- Scene diff modal -->
+                <div id="diff-modal" class="modal" style="display:none">
+                    <div class="modal-content">
+                        <button class="modal-close" id="diff-close">✕</button>
+                        <h3 id="diff-title">Scene Diff</h3>
+                        <div class="diff-container">
+                            <div class="diff-frame">
+                                <p>Previous Scene (last frame)</p>
+                                <img id="diff-prev" alt="Previous">
+                            </div>
+                            <div class="diff-arrow">→</div>
+                            <div class="diff-frame">
+                                <p>New Scene (first frame)</p>
+                                <img id="diff-next" alt="Next">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Face panel (right) -->
+            <aside id="face-panel" class="panel" style="display:none">
+                <div class="face-panel-header">
+                    <h2>Faces</h2>
+                    <div class="face-view-toggle">
+                        <button id="face-view-flat" class="btn btn-sm active">All</button>
+                        <button id="face-view-grouped" class="btn btn-sm">Grouped</button>
+                    </div>
+                </div>
+                <div id="face-list" class="face-list"></div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Keyboard shortcut help -->
+    <div id="shortcuts-help" class="shortcuts-help" style="display:none">
+        <h3>Keyboard Shortcuts</h3>
+        <ul>
+            <li><kbd>←</kbd> <kbd>→</kbd> Navigate scenes</li>
+            <li><kbd>Delete</kbd> Remove selected scene</li>
+            <li><kbd>Space</kbd> Preview clip</li>
+            <li><kbd>Escape</kbd> Close modal</li>
+            <li><kbd>?</kbd> Toggle this help</li>
+        </ul>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
