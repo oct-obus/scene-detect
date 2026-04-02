@@ -428,12 +428,27 @@ def _guess_video_mime(path: str) -> str:
 
 
 def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "0.0.0.0") -> None:
+    from contextlib import asynccontextmanager
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse, Response
     import uvicorn
 
-    app = FastAPI(title="Scene Detect")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if sys.platform == "win32":
+            loop = asyncio.get_running_loop()
+
+            def _handler(loop, context):
+                exc = context.get("exception")
+                if isinstance(exc, (ConnectionResetError, OSError)):
+                    return
+                loop.default_exception_handler(context)
+
+            loop.set_exception_handler(_handler)
+        yield
+
+    app = FastAPI(title="Scene Detect", lifespan=lifespan)
     detector = SceneDetector(video_path) if video_path else None
     state: dict[str, Any] = {"detector": detector, "video_path": video_path}
     static_dir = Path(__file__).parent / "static"
@@ -742,19 +757,6 @@ def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "
     else:
         print("  No video preloaded -- select one from the UI")
     print(f"  Open http://localhost:{port} in your browser\n")
-
-    if sys.platform == "win32":
-        @app.on_event("startup")
-        async def _suppress_win_socket_errors():
-            loop = asyncio.get_running_loop()
-
-            def _handler(loop, context):
-                exc = context.get("exception")
-                if isinstance(exc, (ConnectionResetError, OSError)):
-                    return
-                loop.default_exception_handler(context)
-
-            loop.set_exception_handler(_handler)
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
