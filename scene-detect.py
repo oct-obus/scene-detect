@@ -98,38 +98,45 @@ def calc_histogram(frame: np.ndarray) -> np.ndarray:
 
 class FaceAnalyzer:
     def __init__(self, min_confidence: float = 0.5):
-        try:
-            from mediapipe.python.solutions import face_detection
-        except ImportError:
-            import mediapipe as mp
-            face_detection = mp.solutions.face_detection
-        self.detector = face_detection.FaceDetection(
-            model_selection=1,
+        import mediapipe as mp
+
+        # New tasks API (mediapipe >= 0.10.31)
+        model_path = Path(__file__).parent / "blaze_face_short_range.tflite"
+        if not model_path.exists():
+            import urllib.request
+            url = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
+            urllib.request.urlretrieve(url, str(model_path))
+
+        options = mp.tasks.vision.FaceDetectorOptions(
+            base_options=mp.tasks.BaseOptions(model_asset_path=str(model_path)),
+            running_mode=mp.tasks.vision.RunningMode.IMAGE,
             min_detection_confidence=min_confidence,
         )
+        self.detector = mp.tasks.vision.FaceDetector.create_from_options(options)
+        self._mp = mp
 
     def detect(self, frame: np.ndarray) -> list[FaceDetection]:
         h, w = frame.shape[:2]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.detector.process(rgb)
+        mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
+        result = self.detector.detect(mp_image)
 
         faces = []
-        if not results.detections:
-            return faces
-
-        for det in results.detections:
-            bb = det.location_data.relative_bounding_box
-            x = max(0, int(bb.xmin * w))
-            y = max(0, int(bb.ymin * h))
-            bw = min(int(bb.width * w), w - x)
-            bh = min(int(bb.height * h), h - y)
+        for det in result.detections:
+            bb = det.bounding_box
+            x, y, bw, bh = bb.origin_x, bb.origin_y, bb.width, bb.height
+            x = max(0, x)
+            y = max(0, y)
+            bw = min(bw, w - x)
+            bh = min(bh, h - y)
             if bw < 20 or bh < 20:
                 continue
 
+            score = det.categories[0].score if det.categories else 0.0
             embedding = self._compute_embedding(frame, x, y, bw, bh)
             faces.append(FaceDetection(
                 bbox=(x, y, bw, bh),
-                confidence=round(det.score[0], 4),
+                confidence=round(score, 4),
                 embedding=embedding,
             ))
         return faces

@@ -3,3 +3,4 @@ thumbnails/
 frontend/node_modules/
 frontend/dist/
 .venv/
+*.tflite
