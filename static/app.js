@@ -32,9 +32,6 @@ async function init() {
     // Fetch video info
     const res = await fetch('/api/video-info');
     state.videoInfo = await res.json();
-    state.videoDuration = state.videoInfo.duration;
-    $('#video-name').textContent = state.videoInfo.filename +
-        ` (${state.videoInfo.width}x${state.videoInfo.height}, ${state.videoInfo.fps.toFixed(1)} fps, ${formatTime(state.videoInfo.duration)})`;
 
     setupSliders();
     setupButtons();
@@ -42,8 +39,41 @@ async function init() {
     setupVideoPlayer();
     setupTimelineClick();
     setupSettingsToggle();
+    setupVideoPicker();
+
+    if (state.videoInfo.filename) {
+        // Video is preloaded
+        onVideoLoaded(state.videoInfo);
+    } else {
+        // No video -- show picker
+        showVideoPicker();
+    }
+}
+
+function onVideoLoaded(info) {
+    state.videoInfo = info;
+    state.videoDuration = info.duration;
+    $('#video-name').textContent = info.filename +
+        ` (${info.width}x${info.height}, ${info.fps.toFixed(1)} fps, ${formatTime(info.duration)})`;
+
+    // Update video source
+    const video = $('#video-player');
+    const source = $('#video-source');
+    source.src = '/api/video?' + Date.now();
+    video.load();
+
+    // Hide picker, show video
+    $('#video-picker').style.display = 'none';
+    $('#video-section').style.display = '';
+    $('#timeline-container').style.display = '';
+    $('#video-info-bar').style.display = '';
+    $('#analyze-btn').disabled = false;
 
     // Try to load existing results
+    loadExistingResults();
+}
+
+async function loadExistingResults() {
     const scenesRes = await fetch('/api/scenes');
     const data = await scenesRes.json();
     if (data.scenes && data.scenes.length > 0) {
@@ -54,6 +84,134 @@ async function init() {
         renderAll();
         setStatus('done', `${state.scenes.length} scenes loaded`);
     }
+}
+
+function showVideoPicker() {
+    $('#video-picker').style.display = 'flex';
+    $('#video-section').style.display = 'none';
+    $('#timeline-container').style.display = 'none';
+    $('#video-info-bar').style.display = 'none';
+    $('#analyze-btn').disabled = true;
+    $('#video-name').textContent = '';
+    browseDirectory('~');
+}
+
+function setupVideoPicker() {
+    const input = $('#video-path-input');
+    const goBtn = $('#video-path-go');
+
+    goBtn.addEventListener('click', () => openVideoByPath(input.value));
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') openVideoByPath(input.value);
+    });
+}
+
+async function openVideoByPath(path) {
+    if (!path.trim()) return;
+    const errEl = $('#picker-error');
+    errEl.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/set-video', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({path: path.trim()}),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            errEl.textContent = text || 'Failed to open video';
+            errEl.style.display = 'block';
+            return;
+        }
+        const info = await res.json();
+        // Clear previous results
+        state.scenes = [];
+        state.scores = [];
+        renderGrid();
+        renderTimeline();
+        onVideoLoaded(info);
+        setStatus('', 'Ready');
+    } catch (e) {
+        errEl.textContent = 'Error: ' + e.message;
+        errEl.style.display = 'block';
+    }
+}
+
+async function browseDirectory(path) {
+    try {
+        const res = await fetch('/api/browse?path=' + encodeURIComponent(path));
+        if (!res.ok) return;
+        const data = await res.json();
+        renderBrowser(data);
+    } catch (e) {
+        console.error('Browse error:', e);
+    }
+}
+
+function renderBrowser(data) {
+    const pathEl = $('#browser-path');
+    const listEl = $('#browser-list');
+
+    pathEl.innerHTML = '';
+    if (data.parent && data.parent !== data.path) {
+        const upBtn = document.createElement('span');
+        upBtn.className = 'browser-path-up';
+        upBtn.textContent = '..';
+        upBtn.addEventListener('click', () => browseDirectory(data.parent));
+        pathEl.appendChild(upBtn);
+    }
+    const pathText = document.createElement('span');
+    pathText.textContent = data.path;
+    pathEl.appendChild(pathText);
+
+    listEl.innerHTML = '';
+    for (const entry of data.entries) {
+        const item = document.createElement('div');
+        item.className = 'browser-item' + (entry.type === 'dir' ? ' is-dir' : '');
+
+        const icon = document.createElement('span');
+        icon.className = 'browser-item-icon';
+        icon.textContent = entry.type === 'dir' ? '\u{1F4C1}' : '\u{1F3AC}';
+        item.appendChild(icon);
+
+        const name = document.createElement('span');
+        name.className = 'browser-item-name';
+        name.textContent = entry.name;
+        item.appendChild(name);
+
+        if (entry.size !== undefined) {
+            const size = document.createElement('span');
+            size.className = 'browser-item-size';
+            size.textContent = formatFileSize(entry.size);
+            item.appendChild(size);
+        }
+
+        if (entry.type === 'dir') {
+            item.addEventListener('click', () => browseDirectory(entry.path));
+        } else {
+            item.addEventListener('click', () => {
+                $('#video-path-input').value = entry.path;
+                openVideoByPath(entry.path);
+            });
+        }
+
+        listEl.appendChild(item);
+    }
+
+    if (data.entries.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'browser-item';
+        empty.style.color = 'var(--text-muted)';
+        empty.textContent = 'No video files in this directory';
+        listEl.appendChild(empty);
+    }
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
 }
 
 // ── Sliders ──────────────────────────────────────────────────────────────────
@@ -283,6 +441,15 @@ function startAnalysis() {
             $('#cancel-btn').style.display = 'none';
             $('#progress-section').style.display = 'none';
             setStatus('', 'Cancelled');
+            ws.close();
+        }
+
+        if (msg.type === 'error') {
+            state.analyzing = false;
+            $('#analyze-btn').style.display = '';
+            $('#cancel-btn').style.display = 'none';
+            $('#progress-section').style.display = 'none';
+            setStatus('', msg.message || 'Error');
             ws.close();
         }
     };

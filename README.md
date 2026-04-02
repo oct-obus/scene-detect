@@ -38,6 +38,7 @@ python scene-detect.py video.mp4
 ```bash
 uv pip install opencv-python-headless numpy fastapi uvicorn websockets
 python scene-detect.py video.mp4 --ui
+python scene-detect.py --ui                   # no video -- pick from browser
 ```
 
 ### Face detection (optional add-on)

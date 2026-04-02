@@ -395,14 +395,15 @@ class SceneDetector:
 
 # ── Web UI Server ────────────────────────────────────────────────────────────
 
-def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
+def run_web_ui(video_path: Optional[str] = None, port: int = 8500, host: str = "0.0.0.0"):
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse, Response
     import uvicorn
 
     app = FastAPI(title="Scene Detect")
-    detector = SceneDetector(video_path)
+    detector = SceneDetector(video_path) if video_path else None
+    state = {"detector": detector, "video_path": video_path}
     static_dir = Path(__file__).parent / "static"
     thumb_dir = Path(__file__).parent / "thumbnails"
 
@@ -415,16 +416,71 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
     async def index():
         return FileResponse(str(static_dir / "index.html"))
 
+    @app.post("/api/set-video")
+    async def set_video(data: dict):
+        path = data.get("path", "").strip()
+        if not path:
+            return Response(status_code=400, content="No path provided")
+        path = os.path.expanduser(path)
+        if not os.path.isfile(path):
+            return Response(status_code=404, content=f"File not found: {path}")
+        state["video_path"] = path
+        state["detector"] = SceneDetector(path)
+        # Return video info
+        cap = cv2.VideoCapture(path)
+        info = {
+            "path": path,
+            "filename": os.path.basename(path),
+            "fps": cap.get(cv2.CAP_PROP_FPS) or 30.0,
+            "total_frames": int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+            "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            "duration": int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / (cap.get(cv2.CAP_PROP_FPS) or 30.0),
+        }
+        cap.release()
+        return info
+
+    @app.get("/api/browse")
+    async def browse_directory(path: str = "~"):
+        """List video files and directories at the given path."""
+        target = os.path.expanduser(path)
+        if not os.path.isdir(target):
+            return Response(status_code=404, content="Directory not found")
+        video_exts = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.mts'}
+        entries = []
+        try:
+            for name in sorted(os.listdir(target)):
+                if name.startswith('.'):
+                    continue
+                full = os.path.join(target, name)
+                if os.path.isdir(full):
+                    entries.append({"name": name, "type": "dir", "path": full})
+                elif os.path.isfile(full):
+                    ext = os.path.splitext(name)[1].lower()
+                    if ext in video_exts:
+                        size = os.path.getsize(full)
+                        entries.append({"name": name, "type": "file", "path": full, "size": size})
+        except PermissionError:
+            return Response(status_code=403, content="Permission denied")
+        return {"path": target, "parent": os.path.dirname(target), "entries": entries}
+
     @app.get("/api/video")
     async def serve_video():
-        return FileResponse(video_path, media_type="video/mp4", filename=os.path.basename(video_path))
+        vp = state["video_path"]
+        if not vp:
+            return Response(status_code=404, content="No video loaded")
+        return FileResponse(vp, media_type="video/mp4", filename=os.path.basename(vp))
 
     @app.get("/api/video-info")
     async def video_info():
-        cap = cv2.VideoCapture(video_path)
+        vp = state["video_path"]
+        if not vp:
+            return {"path": None, "filename": None, "fps": 0, "total_frames": 0,
+                    "width": 0, "height": 0, "duration": 0}
+        cap = cv2.VideoCapture(vp)
         info = {
-            "path": video_path,
-            "filename": os.path.basename(video_path),
+            "path": vp,
+            "filename": os.path.basename(vp),
             "fps": cap.get(cv2.CAP_PROP_FPS) or 30.0,
             "total_frames": int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
             "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -439,8 +495,10 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
         path = thumb_dir / f"scene_{frame:06d}.jpg"
         if path.exists():
             return FileResponse(str(path), media_type="image/jpeg")
-        # Generate on the fly
-        f = detector.get_frame(frame)
+        det = state["detector"]
+        if not det:
+            return Response(status_code=404)
+        f = det.get_frame(frame)
         if f is None:
             return Response(status_code=404)
         _, buf = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -448,7 +506,10 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
 
     @app.get("/api/frame/{frame}")
     async def get_frame(frame: int):
-        f = detector.get_frame(frame)
+        det = state["detector"]
+        if not det:
+            return Response(status_code=404)
+        f = det.get_frame(frame)
         if f is None:
             return Response(status_code=404)
         _, buf = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 90])
@@ -456,17 +517,17 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
 
     @app.get("/api/face-crop/{scene_idx}/{face_idx}")
     async def get_face_crop(scene_idx: int, face_idx: int):
-        if scene_idx >= len(detector.scenes):
+        det = state["detector"]
+        if not det or scene_idx >= len(det.scenes):
             return Response(status_code=404)
-        sc = detector.scenes[scene_idx]
+        sc = det.scenes[scene_idx]
         if face_idx >= len(sc.faces):
             return Response(status_code=404)
         face = sc.faces[face_idx]
-        frame = detector.get_frame(sc.frame)
+        frame = det.get_frame(sc.frame)
         if frame is None:
             return Response(status_code=404)
         x, y, w, h = face.bbox
-        # Add some padding
         fh, fw = frame.shape[:2]
         pad = int(max(w, h) * 0.3)
         x1, y1 = max(0, x - pad), max(0, y - pad)
@@ -478,16 +539,22 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
 
     @app.get("/api/scenes")
     async def get_scenes():
+        det = state["detector"]
+        if not det:
+            return {"scenes": [], "all_scores": [], "fps": 0, "total_frames": 0}
         return {
-            "scenes": [sc.to_dict() for sc in detector.scenes if not sc.removed],
-            "all_scores": detector.all_scores[::max(1, len(detector.all_scores) // 2000)],
-            "fps": detector.fps,
-            "total_frames": detector.total_frames,
+            "scenes": [sc.to_dict() for sc in det.scenes if not sc.removed],
+            "all_scores": det.all_scores[::max(1, len(det.all_scores) // 2000)],
+            "fps": det.fps,
+            "total_frames": det.total_frames,
         }
 
     @app.delete("/api/scenes/{frame}")
     async def remove_scene(frame: int):
-        for sc in detector.scenes:
+        det = state["detector"]
+        if not det:
+            return Response(status_code=404)
+        for sc in det.scenes:
             if sc.frame == frame:
                 sc.removed = True
                 return {"ok": True}
@@ -495,7 +562,10 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
 
     @app.post("/api/scenes/{frame}/restore")
     async def restore_scene(frame: int):
-        for sc in detector.scenes:
+        det = state["detector"]
+        if not det:
+            return Response(status_code=404)
+        for sc in det.scenes:
             if sc.frame == frame:
                 sc.removed = False
                 return {"ok": True}
@@ -503,11 +573,14 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
 
     @app.post("/api/faces/merge")
     async def merge_characters(data: dict):
+        det = state["detector"]
+        if not det:
+            return Response(status_code=404)
         source_id = data.get("source")
         target_id = data.get("target")
         if source_id is None or target_id is None:
             return Response(status_code=400)
-        for sc in detector.scenes:
+        for sc in det.scenes:
             for face in sc.faces:
                 if face.character_id == source_id:
                     face.character_id = target_id
@@ -515,17 +588,19 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
 
     @app.post("/api/faces/split")
     async def split_face(data: dict):
+        det = state["detector"]
+        if not det:
+            return Response(status_code=404)
         scene_idx = data.get("scene_idx")
         face_idx = data.get("face_idx")
         if scene_idx is None or face_idx is None:
             return Response(status_code=400)
-        # Find max character_id
         max_id = 0
-        for sc in detector.scenes:
+        for sc in det.scenes:
             for f in sc.faces:
                 max_id = max(max_id, f.character_id)
         new_id = max_id + 1
-        detector.scenes[scene_idx].faces[face_idx].character_id = new_id
+        det.scenes[scene_idx].faces[face_idx].character_id = new_id
         return {"ok": True, "new_character_id": new_id}
 
     @app.websocket("/api/ws")
@@ -538,6 +613,10 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
                 action = data.get("action")
 
                 if action == "analyze":
+                    det = state["detector"]
+                    if not det:
+                        await ws.send_json({"type": "error", "message": "No video loaded"})
+                        continue
                     settings = data.get("settings", {})
 
                     async def run_analysis():
@@ -561,7 +640,7 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
                             )
 
                         def do_detect():
-                            detector.detect(
+                            det.detect(
                                 threshold=settings.get("threshold", 0.4),
                                 min_scene_len=settings.get("min_scene_len", 15),
                                 adaptive=settings.get("adaptive", True),
@@ -579,10 +658,8 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
                         with analysis_lock:
                             await loop.run_in_executor(None, do_detect)
 
-                        # Send completion
-                        scenes_data = [sc.to_dict() for sc in detector.scenes]
-                        # Downsample scores for the heatmap
-                        scores = detector.all_scores
+                        scenes_data = [sc.to_dict() for sc in det.scenes]
+                        scores = det.all_scores
                         if len(scores) > 2000:
                             step = len(scores) // 2000
                             scores = scores[::step]
@@ -590,21 +667,26 @@ def run_web_ui(video_path: str, port: int = 8500, host: str = "0.0.0.0"):
                             "type": "complete",
                             "scenes": scenes_data,
                             "scores": [round(s, 4) for s in scores],
-                            "fps": detector.fps,
-                            "total_frames": detector.total_frames,
+                            "fps": det.fps,
+                            "total_frames": det.total_frames,
                         })
 
                     asyncio.create_task(run_analysis())
 
                 elif action == "cancel":
-                    detector.cancel()
+                    det = state["detector"]
+                    if det:
+                        det.cancel()
                     await ws.send_json({"type": "cancelled"})
 
         except WebSocketDisconnect:
             active_ws.remove(ws)
 
     print(f"\n  Scene Detect UI")
-    print(f"  Video: {video_path}")
+    if video_path:
+        print(f"  Video: {video_path}")
+    else:
+        print(f"  No video preloaded -- select one from the UI")
     print(f"  Open http://localhost:{port} in your browser\n")
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
@@ -681,7 +763,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Detect scene changes in a video, with optional face re-identification and web UI"
     )
-    parser.add_argument("video", help="Path to video file")
+    parser.add_argument("video", nargs="?", default=None, help="Path to video file (optional with --ui)")
     parser.add_argument("-t", "--threshold", type=float, default=0.4,
                         help="Detection threshold 0-1 (default: 0.4)")
     parser.add_argument("-m", "--min-scene-len", type=int, default=15,
@@ -715,6 +797,8 @@ def main():
     if args.ui:
         run_web_ui(args.video, port=args.port, host=args.host)
     else:
+        if not args.video:
+            parser.error("video path is required in CLI mode")
         run_cli(args)
 
 

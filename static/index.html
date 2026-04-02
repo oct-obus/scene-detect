@@ -101,10 +101,26 @@
 
             <!-- Center content -->
             <main id="center-content">
+                <!-- Video picker (shown when no video loaded) -->
+                <div id="video-picker" style="display:none">
+                    <div class="picker-box">
+                        <h2>Open a video</h2>
+                        <div class="picker-input-row">
+                            <input type="text" id="video-path-input" placeholder="Enter video file path..." spellcheck="false">
+                            <button id="video-path-go" class="btn btn-primary">Open</button>
+                        </div>
+                        <div id="picker-error" class="picker-error" style="display:none"></div>
+                        <div id="file-browser">
+                            <div id="browser-path" class="browser-path"></div>
+                            <div id="browser-list" class="browser-list"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Video player -->
                 <div id="video-section">
                     <video id="video-player" controls>
-                        <source src="/api/video" type="video/mp4">
+                        <source id="video-source" src="/api/video" type="video/mp4">
                     </video>
                 </div>
 
